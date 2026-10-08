@@ -1,0 +1,8 @@
+LIBRARY	     "IIS_Filter"
+
+EXPORTS
+	HttpFilterProc      @1
+	GetFilterVersion    @2
+    TerminateFilter     @3
+    help                @4
+    test                @5

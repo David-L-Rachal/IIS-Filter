@@ -1,0 +1,31 @@
+# Visual C++ / Visual Studio build output
+Debug/
+Release/
+*.obj
+*.pdb
+*.ilk
+*.lib
+*.exp
+*.bsc
+*.sbr
+*.idb
+*.ncb
+*.opt
+*.plg
+
+# Compiled binaries / archives
+*.dll
+*.exe
+*.rar
+*.zip
+
+# Visual SourceSafe metadata
+*.scc
+
+# Generated/imported type-library headers
+msado15.tlh
+
+# OS/editor junk
+.DS_Store
+__MACOSX/
+*.swp

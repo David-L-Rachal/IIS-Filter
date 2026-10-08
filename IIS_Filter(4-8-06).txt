@@ -1,0 +1,399 @@
+#include "stdafx.h"
+
+#define READ                FALSE
+#define COOKIE_TIME_STR     FALSE
+#define MAX_LEN             1024
+#define FILTER_NAME         "ISAPI_Zuul"
+#define FLTR_AUTH           "Authorization:"
+#define FLTR_PATH           "URL"
+#define FLTR_HEAD           "WWW-Authenticate: Basic realm=\"SecureSite\""
+#define FLTR_PASS           "Basic <REDACTED_BASE64_CREDENTIAL>"
+#define KILL_HEAD           "\0"
+
+//#define COOKIE              "Set-Cookie:"
+//#define COOKIE_BEGIN_LEN    42
+//#define COOKIE_END_LEN      15
+//#define COOKIE_STRLEN       82
+
+bool stillProcessing = true;
+
+stringsmap smUserResources;
+
+stringsmap smFreeResources;
+
+HANDLE hThread1;
+
+
+stringsmap smCache0;
+stringsmap smCache1;
+stringsmap smPointer;
+
+char szLastUpdate[1000] = {0};
+char szBuffer[1000] = {0};
+
+CRITICAL_SECTION cs;
+int aSwitch;
+
+
+char* szServer = "DMCSERVER1";
+char* szDb = "ISIS_SEC";
+char* szUid = "<DB_USER>";
+char* szPwd = "<DB_PASSWORD>";
+
+
+//char* szServerStr = "server";
+//char* szDbStr = "db";
+//char* szUidStr = "uid";
+//char* szPwdStr = "pwd";
+
+//char* szIniFile = "C:\\TestINI.ini";
+
+////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////
+
+void PopulateUserMap()
+{
+    CADOBinding conn;
+    int iLoop = 0;
+    int iCount = 0;
+    if (conn.Open("SQLOLEDB", szServer, szDb, szUid, szPwd))
+    {        
+        CDataReturn data;
+
+        if(conn.Execute(data.SQL().c_str(), &data, &data))
+        {
+            
+            {
+                iCount = conn.RecordCount();
+                if(iCount > 1)
+                {
+                    
+                    EnterCriticalSection(&cs);    
+                    RtlZeroMemory(szBuffer, 1000);
+                    lstrcpy(szBuffer, data.UserAndPath.Value);
+                    if (lstrcmp(szLastUpdate, szBuffer) != 0)
+                    {
+                                                                        
+                        RtlZeroMemory(szLastUpdate, 1000);
+                        lstrcpy(szLastUpdate, data.UserAndPath.Value);
+                        
+                        conn.MoveNext();
+
+                        if( aSwitch == 0)
+                        {
+                            smCache1.FreeArray();
+                            smCache1.MakeArray(iCount - 1);                         
+                            do
+                            {
+                                
+                                RtlZeroMemory(szBuffer, 1000);
+                                lstrcpy(szBuffer, data.UserAndPath.Value);
+                                OutputDebugString(szBuffer);
+                                smCache1.SetItem(iLoop, data.UserAndPath.Value);
+                                iLoop++;
+                            }while(conn.MoveNext());
+                            aSwitch = 1;
+                               
+                        }
+                        else
+                        {
+                            smCache0.FreeArray();
+                            smCache0.MakeArray(iCount - 1);                         
+                            do
+                            {
+
+                                RtlZeroMemory(szBuffer, 1000);
+                                lstrcpy(szBuffer, data.UserAndPath.Value);
+                                OutputDebugString(szBuffer);
+                                smCache0.SetItem(iLoop, data.UserAndPath.Value);
+                                iLoop++;
+                            }while(conn.MoveNext());
+
+                            aSwitch = 0;
+                        }         
+                                         
+                    }  
+                    
+                    smFreeResources.MakeArray(4);
+
+                    smFreeResources.SetItem(0, "/faq.html");
+                    smFreeResources.SetItem(1, "/favicon.ico");
+                    smFreeResources.SetItem(2, "/music2.mp3");
+                    smFreeResources.SetItem(3, "/subfolder1/test.asp");
+                   
+                    LeaveCriticalSection(&cs);    
+                }
+            
+            }       
+        
+        }
+        
+        conn.Close();
+    }
+
+}
+
+//////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+
+bool IsValidUser(char* codedPattern, char* szLocation)
+{
+    bool foundUser = false;
+    DWORD allocSize = 0;
+    char* szCriteria;
+
+    allocSize = lstrlen(codedPattern) + lstrlen(szLocation) + 1;
+
+    //char* szCriteria = (char*)malloc(lstrlen(codedPattern) + lstrlen(szLocation) + 1);
+    szCriteria = (char*)VirtualAlloc(NULL, allocSize, MEM_COMMIT, PAGE_READWRITE);
+    char szResource[256];
+
+    lstrcpy(szCriteria, codedPattern);
+    strlwr(szLocation);
+    lstrcat(szCriteria, szLocation);
+
+    OutputDebugString(szCriteria);
+
+    EnterCriticalSection(&cs);
+
+    if (smFreeResources.Find(szLocation).start >= 0)
+    {
+        lstrcpy(szResource, "-- free resource: ");
+        lstrcat(szResource, szLocation);
+        OutputDebugString(szResource);
+
+        foundUser = true;
+    }
+    else
+    {
+        lstrcpy(szResource, "-- not free: ");
+        lstrcat(szResource, szLocation);
+        OutputDebugString(szResource);
+        if (aSwitch == 0)
+        {
+            if (smCache0.Find(szCriteria).start >= 0)
+            {
+                foundUser = true;
+            }    
+        }
+        else
+        {
+            if (smCache1.Find(szCriteria).start >= 0)
+            {
+                foundUser = true;
+            }
+            
+        }    
+       
+       
+        if (foundUser == false)
+        {
+            if (lstrcmp(FLTR_PASS, codedPattern) == NULL)
+            {
+                OutputDebugString("       _==/          i     i          \\==_");
+                OutputDebugString("     /XX/            |\\___/|            \\XX\\");
+                OutputDebugString("   /XXXX\\            |XXXXX|            /XXXX\\");
+                OutputDebugString("  |XXXXXX\\_         _XXXXXXX_         _/XXXXXX|");
+                OutputDebugString(" XXXXXXXXXXXxxxxxxxXXXXXXXXXXXxxxxxxxXXXXXXXXXXX");
+                OutputDebugString("|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|");
+                OutputDebugString("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+                OutputDebugString("|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|");
+                OutputDebugString(" \\XXXXX/^^^^\\\"\\XXXXXXXXXXXXXXXXXXXXX/^^^^\\XXXXX/");
+                OutputDebugString("  |XXX|       \\XXX/^^\\XXXXX/^^\\XXX/       |XXX|");
+                OutputDebugString("    \\XX\\       \\X/    \\XXX/    \\X/       /XX/");
+                OutputDebugString("       \"\\       \"      \\X/      \"      /\"");
+
+                foundUser = true;
+            }
+        }
+    }
+
+    LeaveCriticalSection(&cs);
+    if( VirtualFree(szCriteria, 0, MEM_RELEASE) == 0)
+    {
+        OutputDebugString("did not free MEM");
+    }
+    //free(szCriteria);
+
+    return foundUser;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+unsigned int __stdcall thread(void* vpVoid)
+{
+   ((vpVoid));
+
+    do
+    {
+        PopulateUserMap();
+        Sleep(5000);
+    }while(stillProcessing);
+    _endthreadex(0);
+    return 0;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////
+
+
+
+DWORD WINAPI __stdcall HttpFilterProc(HTTP_FILTER_CONTEXT *pfc, DWORD dwNotificationType, LPVOID *lpNotificationData)
+{
+    if (dwNotificationType == SF_NOTIFY_PREPROC_HEADERS)
+    {
+        HTTP_FILTER_PREPROC_HEADERS* fpH;
+        
+        char szRetHead[MAX_LEN + 1];
+        char szUrlLoc[(MAX_LEN * 2) + 1] = {0};
+        
+		//char szNewCookie[5] = {0};
+		//char szBuff1[MAX_LEN] = {0};
+		//char szBuff2[MAX_LEN] = {0};
+        //char szClortho[82] = {0};
+        unsigned long ulLenHead = MAX_LEN;
+        unsigned long ulLenUrl = MAX_LEN * 2;
+        fpH = (HTTP_FILTER_PREPROC_HEADERS*)lpNotificationData;
+        
+		//szNewCookie = (char*)malloc(5);
+		//szBuff1 = (char*)malloc(MAX_LEN);
+		//szBuff2 = (char*)malloc(MAX_LEN);
+		//RtlZeroMemory(szClortho, 82);
+		//RtlZeroMemory(szNewCookie, 5);
+        RtlZeroMemory(szUrlLoc, (MAX_LEN * 2) + 1);
+        RtlZeroMemory(szRetHead, MAX_LEN + 1);
+       
+        if (fpH->GetHeader(pfc, (char*)FLTR_AUTH, szRetHead, &ulLenHead) == TRUE && fpH->GetHeader(pfc, (char*)FLTR_PATH, szUrlLoc, &ulLenUrl) == TRUE)
+        {
+            char* szQueryStringLocation = NULL;
+            szQueryStringLocation = strstr(szUrlLoc, "?");
+            if (szQueryStringLocation != NULL)
+            {
+                szQueryStringLocation[0] = NULL;
+            }
+
+            if(IsValidUser(szRetHead, szUrlLoc))
+            {   
+                OutputDebugString("!! passed");
+            }
+            else
+            {
+                OutputDebugString("** failed authentication");
+                pfc->ServerSupportFunction(pfc, SF_REQ_ADD_HEADERS_ON_DENIAL, (void*)FLTR_HEAD, NULL, NULL);
+                SetLastError(ERROR_ACCESS_DENIED);
+             
+				return SF_STATUS_REQ_ERROR;
+            }       
+        }
+        else //No header of error so reject them
+        {
+            if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+            {
+                OutputDebugString("** buffer too small");
+                SetLastError(ERROR_ACCESS_DENIED);
+            }
+            else
+            {
+                OutputDebugString("** failed with no header");
+                pfc->ServerSupportFunction(pfc, SF_REQ_ADD_HEADERS_ON_DENIAL, (void*)FLTR_HEAD, NULL, NULL);
+                SetLastError(ERROR_ACCESS_DENIED);
+            }
+            
+			return SF_STATUS_REQ_ERROR;
+        }
+    }
+
+
+    return SF_STATUS_REQ_NEXT_NOTIFICATION;
+}
+
+//////////////////////////////////////////////////
+
+BOOL APIENTRY DllMain( HANDLE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved)
+{
+    ((hModule));
+    ((ul_reason_for_call));
+    ((lpReserved));
+
+    return TRUE;
+}
+
+//////////////////////////////////////////////////
+
+BOOL WINAPI __stdcall GetFilterVersion(HTTP_FILTER_VERSION *pVer)
+{
+    //char szSelfName[MAX_LEN];
+    char* szSection = "database";
+    //char* szKey = "key";
+    char* szDefault = "NA";
+    char szValue[MAX_LEN] = {0};
+    
+    int iBuffSize = MAX_LEN + 1;
+    DWORD iSelfSize = MAX_LEN + 1;
+
+    lstrcpy(pVer->lpszFilterDesc, FILTER_NAME);
+    pVer->dwFilterVersion =  HTTP_FILTER_REVISION;
+    pVer->dwFlags = SF_NOTIFY_PREPROC_HEADERS | SF_NOTIFY_SEND_RESPONSE;
+/*
+#if(READ == TRUE)
+    //GetModuleFileName(NULL, szSelfName, iSelfSize);
+    HMODULE hFile = GetModuleHandle(NULL);
+    GetModuleFileName(hFile, szSelfName, iSelfSize);
+    OutputDebugString(szSelfName);
+    
+    
+    GetPrivateProfileString(szSection, szServerStr,  szDefault, szValue, iBuffSize, szIniFile);
+    strcpy(szServer, szValue);
+    RtlZeroMemory(szValue, MAX_LEN);
+    
+    GetPrivateProfileString(szSection, szDbStr,  szDefault, szValue, iBuffSize, szIniFile);
+    strcpy(szDb, szValue);
+    RtlZeroMemory(szValue, MAX_LEN);
+
+    GetPrivateProfileString(szSection, szUidStr,  szDefault, szValue, iBuffSize, szIniFile);
+    strcpy(szUid, szValue);
+    RtlZeroMemory(szValue, MAX_LEN);
+
+    GetPrivateProfileString(szSection, szPwdStr,  szDefault, szValue, iBuffSize, szIniFile);
+    strcpy(szPwd, szValue);
+    RtlZeroMemory(szValue, MAX_LEN);
+    
+    OutputDebugString(szServer);
+    OutputDebugString(szDb);
+    OutputDebugString(szUid);
+    OutputDebugString(szPwd);    
+#endif    
+*/
+  ::CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    
+    InitializeCriticalSection(&cs);
+    stillProcessing = true;
+    PopulateUserMap();
+       
+    //initalize the PopulatingUserMap filter
+    hThread1 = (HANDLE)_beginthreadex(NULL, NULL, &thread, NULL, NULL, NULL);
+
+    return TRUE;
+}
+
+///////////////////////////////////////////////////////////
+
+BOOL WINAPI __stdcall TerminateFilter(DWORD dwFlags)
+{
+    ((dwFlags));
+
+    EnterCriticalSection(&cs);
+    stillProcessing = false;
+    LeaveCriticalSection(&cs);
+
+    //WaitForSingleObject -- thread
+    CloseHandle(hThread1);
+    smCache0.FreeArray();
+    smCache1.FreeArray();
+    smUserResources.FreeArray();
+    smFreeResources.FreeArray();
+    DeleteCriticalSection(&cs);
+    ::CoUninitialize();
+    return TRUE;
+}

@@ -1,0 +1,591 @@
+#include "stdafx.h"
+
+
+
+#define COOKIE_TIME_STR     FALSE
+#define MAX_LEN             1024
+#define FILTER_NAME         "ISAPI_Zuul"
+#define FLTR_AUTH           "Authorization:"
+#define FLTR_PATH           "URL"
+#define FLTR_HEAD           "WWW-Authenticate: Basic realm=\"SecureSite\""
+#define FLTR_PASS           "Basic <REDACTED_BASE64_CREDENTIAL>"
+#define FLTR_COOKIE2        "Set-Cookie:Clortho=TheKeyMaster; expires=Wed 01-03-2008 00:00:00 GMT; path=/;\r\n"
+#define FLTR_COOKIE3        "Set-Cookie:Gozer=TheDestroyer; expires=Wed 19-02-2008 17:40:00 GMT; path=/;\r\n"
+#define FLTR_COOKIE         "Cookie:"
+
+#define FLTR_KEY            "Gozer: TheDestroyer\r\n"
+#define FLTR_GOZER          "Gozer:"
+#define KILL_HEAD           "\0"
+#define COOKIE              "Set-Cookie:"
+#define COOKIE_BEGIN        "Set-Cookie:Clortho=TheKeyMaster; expires="
+#define COOKIE_END          " GMT; path=/;\r\n"
+#define COOKIE_BEGIN_LEN    42
+#define COOKIE_END_LEN      15
+#define COOKIE_STRLEN       82
+bool stillProcessing = true;
+stringsmap smUserResources;
+stringsmap smFreeResources;
+CRITICAL_SECTION cs;
+
+////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////
+
+void PopulateUserMap()
+{
+    EnterCriticalSection(&cs);
+
+    if (stillProcessing)
+    {
+        smUserResources.MakeArray(6);
+
+        smUserResources.SetItem(0, "Basic <REDACTED_TEST_CREDENTIAL>/");
+        smUserResources.SetItem(1, "Basic <REDACTED_TEST_CREDENTIAL>/info.asp");
+        smUserResources.SetItem(2, "Basic <REDACTED_TEST_CREDENTIAL>/music.mp3");
+        smUserResources.SetItem(3, "Basic <REDACTED_TEST_CREDENTIAL>/nyc wrongregion.asp");
+        smUserResources.SetItem(4, "Basic <REDACTED_TEST_CREDENTIAL>/");
+        smUserResources.SetItem(5, "Basic <REDACTED_TEST_CREDENTIAL>/info.asp");
+
+        smFreeResources.MakeArray(4);
+
+        smFreeResources.SetItem(0, "/faq.html");
+        smFreeResources.SetItem(1, "/favicon.ico");
+        smFreeResources.SetItem(2, "/music2.mp3");
+        smFreeResources.SetItem(3, "/subfolder1/test.asp");
+    }
+
+    LeaveCriticalSection(&cs);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
+
+bool IsValidUser(char* codedPattern, char* szLocation)
+{
+    bool foundUser = false;
+    char* szCriteria = (char*)malloc(lstrlen(codedPattern) + lstrlen(szLocation) + 1);
+    char szResource[256];
+
+    lstrcpy(szCriteria, codedPattern);
+    strlwr(szLocation);
+    lstrcat(szCriteria, szLocation);
+
+    //OutputDebugString(szCriteria);
+
+    EnterCriticalSection(&cs);
+
+    if (smFreeResources.Find(szLocation).start >= 0)
+    {
+        lstrcpy(szResource, "-- free resource: ");
+        lstrcat(szResource, szLocation);
+        OutputDebugString(szResource);
+
+        foundUser = true;
+    }
+    else
+    {
+        lstrcpy(szResource, "-- not free: ");
+        lstrcat(szResource, szLocation);
+        OutputDebugString(szResource);
+
+        if (smUserResources.Find(szCriteria).start >= 0)
+        {
+            foundUser = true;
+        }
+        else
+        {
+            if (lstrcmp(FLTR_PASS, codedPattern) == NULL)
+            {
+                OutputDebugString("       _==/          i     i          \\==_");
+                OutputDebugString("     /XX/            |\\___/|            \\XX\\");
+                OutputDebugString("   /XXXX\\            |XXXXX|            /XXXX\\");
+                OutputDebugString("  |XXXXXX\\_         _XXXXXXX_         _/XXXXXX|");
+                OutputDebugString(" XXXXXXXXXXXxxxxxxxXXXXXXXXXXXxxxxxxxXXXXXXXXXXX");
+                OutputDebugString("|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|");
+                OutputDebugString("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+                OutputDebugString("|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|");
+                OutputDebugString(" \\XXXXX/^^^^\\\"\\XXXXXXXXXXXXXXXXXXXXX/^^^^\\XXXXX/");
+                OutputDebugString("  |XXX|       \\XXX/^^\\XXXXX/^^\\XXX/       |XXX|");
+                OutputDebugString("    \\XX\\       \\X/    \\XXX/    \\X/       /XX/");
+                OutputDebugString("       \"\\       \"      \\X/      \"      /\"");
+
+                foundUser = true;
+            }
+        }
+    }
+
+    LeaveCriticalSection(&cs);
+    free(szCriteria);
+
+    return foundUser;
+}
+
+////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////
+
+BOOL ValidateCookie(char* szCookie, char* szGMtime)
+{
+	OutputDebugString("checking cookie");
+    ((szGMtime));
+	char* szBuff1;
+    char* szNewCookie;
+    
+	unsigned long ulCookie = strlen(szCookie);
+	BOOL isGood = FALSE;
+    szNewCookie = (char*)malloc(ulCookie);
+    szBuff1 = (char*)malloc(ulCookie);
+	ZeroMemory(szBuff1, ulCookie);
+    ZeroMemory(szNewCookie, ulCookie);
+	szBuff1 = strstr(szCookie, "Clortho=");
+
+	if(szBuff1 != NULL)
+	{
+        /*
+        if  (szBuff1 != szCookie)
+        {
+
+            lstrcpyn(szNewCookie, szCookie, (szBuff1 - szCookie) - 1);
+            //szBuff2 = strstr(szBuff1, ";");
+			lstrcat(szNewCookie, szBuff1 + 22);
+
+        }
+        else
+        {
+            szBuff1 = strstr(szCookie, ";");
+            lstrcpyn(szNewCookie, szBuff1 + 2, ulCookie - 22);        
+        }
+			//szBuff2 = strstr(szBuff1, ";");
+			//lstrcat(szNewCookie, szBuff2 + 1 );
+			//lstrcpyn(szBuff2, szBuff1+1, 13);
+	    RtlZeroMemory(szCookie, ulCookie);
+        lstrcpy(szCookie, szNewCookie);    
+        */
+        isGood = TRUE;
+        OutputDebugString("set to good");
+    }
+    free(szCookie);
+    free(szNewCookie);
+	free(szBuff1);
+	return isGood;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+
+DWORD WINAPI __stdcall HttpFilterProc(HTTP_FILTER_CONTEXT *pfc, DWORD dwNotificationType, LPVOID *lpNotificationData)
+{
+    if (dwNotificationType == SF_NOTIFY_PREPROC_HEADERS)
+    {
+        HTTP_FILTER_PREPROC_HEADERS* fpH;
+        
+        char szRetHead[MAX_LEN + 1];
+        char szUrlLoc[(MAX_LEN * 2) + 1] = {0};
+        char szGMtime[30] = {0};
+		char* szNewCookie;
+		char* szBuff1;
+		char* szBuff2;
+        char szClortho[82] = {0};
+        unsigned long ulCookie = 5;
+        unsigned long ulLenHead = MAX_LEN;
+        unsigned long ulLenUrl = MAX_LEN * 2;
+		BOOL isGood = FALSE;
+        fpH = (HTTP_FILTER_PREPROC_HEADERS*)lpNotificationData;
+        
+		szNewCookie = (char*)malloc(5);
+		szBuff1 = (char*)malloc(MAX_LEN);
+		szBuff2 = (char*)malloc(MAX_LEN);
+		RtlZeroMemory(szClortho, 82);
+		RtlZeroMemory(szNewCookie, 5);
+        RtlZeroMemory(szUrlLoc, (MAX_LEN * 2) + 1);
+        RtlZeroMemory(szRetHead, MAX_LEN + 1);
+        
+		struct tm *newtime;
+        long ltime;
+            
+        time(&ltime);
+        newtime = gmtime(&ltime);
+        //if(newtime->tm_min < 40)
+        if(newtime->tm_min < 57)
+        {
+            newtime->tm_min += 3;
+        }
+        else
+        {
+            newtime->tm_min = (newtime->tm_min + 3) - 60;
+            if(newtime->tm_hour == 23)
+            {
+                newtime->tm_hour = 0;
+            }
+            else
+            {
+                newtime->tm_hour += 1;
+            }
+        }
+
+		lstrcpyn(szGMtime, asctime(newtime), 23);
+        lstrcpyn(szClortho, COOKIE_BEGIN, COOKIE_BEGIN_LEN);
+        //lstrcat(szClortho, szGMtime);
+        //lstrcpyn(szBuff1, szGMtime, 23);
+        lstrcat(szClortho, szGMtime);
+        lstrcat(szClortho, COOKIE_END);
+
+        
+        /*      
+        if (fpH->GetHeader(pfc, (char*)FLTR_COOKIE, szNewCookie, &ulCookie) == TRUE)
+        {   
+		   isGood = ValidateCookie(szNewCookie, szGMtime);	
+        }
+        else
+        {
+            DWORD dwCookieError = GetLastError();
+         
+            if (dwCookieError == ERROR_INSUFFICIENT_BUFFER)
+            {
+                free(szNewCookie);
+                szNewCookie = (char*)malloc(ulCookie + 1);
+                RtlZeroMemory(szNewCookie, ulCookie + 1);
+                fpH->GetHeader(pfc, (char*)FLTR_COOKIE, szNewCookie, &ulCookie);
+        		isGood = ValidateCookie(szNewCookie, szGMtime);
+            }
+            
+            if (dwCookieError == ERROR_INVALID_INDEX)
+            {
+                
+            }
+        }
+
+        if(isGood != TRUE)
+        {        
+                OutputDebugString("** failed with bad Cookie");
+                pfc->ServerSupportFunction(pfc, SF_REQ_ADD_HEADERS_ON_DENIAL, (void*)FLTR_HEAD, NULL, NULL);
+                pfc->AddResponseHeaders(pfc, szClortho, 0);
+                pfc->ServerSupportFunction(pfc, SF_REQ_ADD_HEADERS_ON_DENIAL, (void*)szClortho, NULL, NULL);
+                pfc->ServerSupportFunction(pfc, SF_REQ_ADD_HEADERS_ON_DENIAL, (void*)FLTR_HEAD, NULL, NULL);
+                pfc->ServerSupportFunction(pfc, SF_REQ_ADD_HEADERS_ON_DENIAL, (void*)szClortho, NULL, NULL);
+                SetLastError(ERROR_ACCESS_DENIED);
+                return SF_STATUS_REQ_ERROR;
+        }
+*/
+
+        if (fpH->GetHeader(pfc, (char*)FLTR_AUTH, szRetHead, &ulLenHead) == TRUE && fpH->GetHeader(pfc, (char*)FLTR_PATH, szUrlLoc, &ulLenUrl) == TRUE)
+        {
+            char* szQueryStringLocation = NULL;
+
+            szQueryStringLocation = strstr(szUrlLoc, "?");
+
+            if (szQueryStringLocation != NULL)
+            {
+                szQueryStringLocation[0] = NULL;
+            }
+
+            if(IsValidUser(szRetHead, szUrlLoc))
+            {   
+                //pfc->AddResponseHeaders(pfc, szClortho, 0);
+                //pfc->AddResponseHeaders(pfc, FLTR_COOKIE3, 0);
+                OutputDebugString("!! passed");
+            }
+            else
+            {
+                OutputDebugString("** failed authentication");
+                pfc->ServerSupportFunction(pfc, SF_REQ_ADD_HEADERS_ON_DENIAL, (void*)FLTR_HEAD, NULL, NULL);
+                SetLastError(ERROR_ACCESS_DENIED);
+             
+				return SF_STATUS_REQ_ERROR;
+            }       
+        }
+        else //No header of error so reject them
+        {
+            if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+            {
+                OutputDebugString("** buffer too small");
+                SetLastError(ERROR_ACCESS_DENIED);
+            }
+            else
+            {
+                OutputDebugString("** failed with no header");
+                pfc->ServerSupportFunction(pfc, SF_REQ_ADD_HEADERS_ON_DENIAL, (void*)FLTR_HEAD, NULL, NULL);
+                SetLastError(ERROR_ACCESS_DENIED);
+            }
+            
+			return SF_STATUS_REQ_ERROR;
+        }
+    }
+
+
+
+
+
+
+
+/*
+    if (dwNotificationType == SF_NOTIFY_SEND_RESPONSE)
+    {
+        HTTP_FILTER_SEND_RESPONSE* fsr;
+        char szBuffer[MAX_LEN + 1];
+        char szNewCookie[MAX_LEN];
+        unsigned long ulBuff = MAX_LEN;
+        fsr = (HTTP_FILTER_SEND_RESPONSE*)lpNotificationData;
+        // char* szGetHead = "PATH_INFO";
+        char szHeadReturn[MAX_LEN] = {0};
+        //DWORD dwSize = MAX_LEN - 1;
+        //DWORD dwError = 0;
+        RtlZeroMemory(szNewCookie, MAX_LEN);
+        RtlZeroMemory(szHeadReturn, MAX_LEN);
+        
+        /*
+        if(pfc->GetServerVariable(pfc, szGetHead, &szHeadReturn, &dwSize) == TRUE)
+        {
+            OutputDebugString("++ GotServerVariable");
+            OutputDebugString((const char*)&szHeadReturn);       
+            OutputDebugString("-----------------");
+        }
+        else
+        {
+            OutputDebugString("-- No ServerVariable");
+            dwError = GetLastError();
+            itoa(dwError, szNewCookie, 10);
+            OutputDebugString(szNewCookie);
+            OutputDebugString("----------------------");
+        }
+*/ 
+        /*
+        if (fsr->GetHeader(pfc, FLTR_GOZER, szBuffer, &ulBuff ) == TRUE)
+        {
+            struct tm *newtime;
+            long ltime;
+            
+            time(&ltime);
+            newtime = gmtime(&ltime);
+            lstrcpy(szNewCookie, COOKIE_BEGIN);
+            lstrcat(szNewCookie, asctime(newtime));
+            lstrcat(szNewCookie, COOKIE_END);
+            //fsr->SetHeader(pfc, FLTR_KEY, KILL_HEAD);
+            //fsr->SetHeader(pfc, COOKIE, KILL_HEAD);
+            //lstrcat(szNewCookie, "THIS IS A TEST=test");
+            fsr->AddHeader(pfc, COOKIE, szNewCookie);
+            //fsr->AddHeader(pfc, FLTR_COOKIE2, FLTR_COOKIE2);
+            //fsr->AddHeader(pfc, COOKIE, FLTR_COOKIE2);
+        }   
+*/
+//    }
+
+    return SF_STATUS_REQ_NEXT_NOTIFICATION;
+}
+
+BOOL APIENTRY DllMain( HANDLE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved)
+{
+    ((hModule));
+    ((ul_reason_for_call));
+    ((lpReserved));
+
+    return TRUE;
+}
+
+BOOL WINAPI __stdcall GetFilterVersion(HTTP_FILTER_VERSION *pVer)
+{
+    lstrcpy(pVer->lpszFilterDesc, FILTER_NAME);
+    pVer->dwFilterVersion =  HTTP_FILTER_REVISION;
+    pVer->dwFlags = SF_NOTIFY_PREPROC_HEADERS | SF_NOTIFY_SEND_RESPONSE;
+
+    InitializeCriticalSection(&cs);
+    stillProcessing = true;
+    PopulateUserMap();
+
+    //initalize the PopulatingUserMap filter
+
+    return TRUE;
+}
+
+BOOL WINAPI __stdcall TerminateFilter(DWORD dwFlags)
+{
+    ((dwFlags));
+
+    EnterCriticalSection(&cs);
+    stillProcessing = false;
+    LeaveCriticalSection(&cs);
+
+    //WaitForSingleObject -- thread
+
+    smUserResources.FreeArray();
+    smFreeResources.FreeArray();
+    DeleteCriticalSection(&cs);
+    
+    return TRUE;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+#include "stdafx.h"
+
+//optional: have a prototype of your functions here
+
+//currently there are no "DEBUG" checks and added/subtracted code for strict debug usage. review for DEBUG builds.
+//review code for runtime library code removal. "lstrcat" ant not "strcat". use the API and not the runtime.
+//code is currently lacking meaningful comments.
+#define MY_TYPE X509_ASN_ENCODING
+#define MAX_LEN 1064
+
+const char* szRelm = "Basic realm=\"SecureSite\"";
+const char* szAuth = "Authorization:";
+const char* szHeader = "WWW-Authenticate: Basic realm=\"SecureSite\"";
+const char* szDenied = "401 Unauthorized";
+const char* szOk = "200 OK";
+const char* szEncoded = "Basic <REDACTED_TEST_CREDENTIAL>";
+const char* szName = "david";
+const char* szCryptDll = "C:\\path\\to\\crypt32xp.dll";
+const char* szExtra = "test: testing\r\n";
+char szRetHead[MAX_LEN];
+unsigned long ulLen = MAX_LEN + 1;
+CRITICAL_SECTION cs;
+bool Keep_Looping = TRUE;
+HMODULE hCrypt;
+FARPROC hCbts;
+FARPROC hCstb;
+
+
+BOOL APIENTRY DllMain( HANDLE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved)
+{
+    ((hModule));
+    ((ul_reason_for_call));
+    ((lpReserved));
+
+    return TRUE;
+}
+
+BOOL WINAPI __stdcall GetFilterVersion(HTTP_FILTER_VERSION *pVer)
+{
+
+    lstrcpy(pVer->lpszFilterDesc, "ISIS security");
+    pVer->dwFilterVersion =  HTTP_FILTER_REVISION;
+    pVer->dwFlags = SF_NOTIFY_PREPROC_HEADERS | SF_NOTIFY_AUTHENTICATION;
+    hCrypt = LoadLibrary(szCryptDll);
+    if (hCrypt != NULL)
+    {
+        hCbts = GetProcAddress(hCrypt, "CryptBinaryToString");
+        hCstb = GetProcAddress(hCrypt, "CryptStringtoBinary");
+    }
+    else
+    {
+        OutputDebugString("didnt find DLL");
+    }
+    return TRUE;
+}
+
+DWORD WINAPI __stdcall HttpFilterProc(HTTP_FILTER_CONTEXT *pfc, DWORD dwNt, LPVOID *lpN)
+{
+
+    if (dwNt == SF_NOTIFY_PREPROC_HEADERS)
+    {
+        ZeroMemory(szRetHead, MAX_LEN);
+        HTTP_FILTER_PREPROC_HEADERS* fpH;
+        fpH = (HTTP_FILTER_PREPROC_HEADERS*)lpN;
+
+        if (fpH->GetHeader(pfc, (char*)szAuth, szRetHead, &ulLen) == TRUE)
+        {   
+
+
+
+            //Do base 64 decode to validate           
+            //Do bianry search for name in list
+            //validate uid/pwd
+            //
+            if(lstrcmp(szEncoded, (char*)szRetHead) == 0)
+            {   
+                //Base64Coder b64;
+                //b64.Encode(szName);
+                //char szEnd[50];
+                //strcpy(szEnd,b64.EncodedMessage()); 
+                //OutputDebugString(b64.EncodedMessage());
+                //b64.Decode(szEnd);
+                //b64.Decode(szEncoded);
+                //OutputDebugString(b64.DecodedMessage());
+                //if(pfc->ServerSupportFunction(pfc, SF_REQ_SEND_RESPONSE_HEADER, NULL, (unsigned long)szExtra, NULL) == TRUE)
+                {
+                  //  OutputDebugString("added header");
+                }
+                
+                OutputDebugString("passed");
+            }
+            else
+            {
+                pfc->ServerSupportFunction(pfc, SF_REQ_ADD_HEADERS_ON_DENIAL, (void*)szHeader, NULL, NULL);
+                OutputDebugString("failed");
+                SetLastError(ERROR_ACCESS_DENIED);
+				return SF_STATUS_REQ_ERROR;
+            }       
+        }
+        else //No header of error so boot them
+        {
+            if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
+            {
+                OutputDebugString("BUFFER TOO SMALL");
+                SetLastError(ERROR_ACCESS_DENIED);
+			    return SF_STATUS_REQ_ERROR;
+            }
+            else
+            {
+                pfc->ServerSupportFunction(pfc, SF_REQ_ADD_HEADERS_ON_DENIAL, (void*)szHeader, NULL, NULL);
+                OutputDebugString("failed");
+                SetLastError(ERROR_ACCESS_DENIED);
+			    return SF_STATUS_REQ_ERROR;
+            }
+        }
+    
+    }
+    
+    //if (dwNt == SF_NOTIFY_AUTHENTICATION)
+    //{
+        //HTTP_FILTER_AUTHENT* hfa;
+        //hfa = (HTTP_FILTER_AUTHENT*)lpN;
+        //lstrcpy(hfa->pszPassword, "<FTP_PASSWORD>");
+        //lstrcpy(hfa->pszUser, "<FTP_USER>");  
+    //}
+
+    return SF_STATUS_REQ_NEXT_NOTIFICATION;
+}
+
+BOOL WINAPI __stdcall TerminateFilter(DWORD dwFlags)
+{
+
+    FreeLibrary(hCrypt);
+    return TRUE;
+}
+
+*/
